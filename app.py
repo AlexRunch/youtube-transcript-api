@@ -41,4 +41,4 @@ def get_transcript():
         return jsonify({"error": "An unexpected error occurred: " + error_message}), 500
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=8000)
