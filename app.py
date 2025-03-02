@@ -18,7 +18,7 @@ def get_transcript():
         return jsonify({"error": "video_id is required"}), 400
 
     try:
-        transcript = YouTubeTranscriptApi.get_transcript(video_id)
+        transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['en', 'en-US', 'en-GB'])
         window_start = target_time - (window / 2)
         window_end = target_time + (window / 2)
         captured_text = ""
@@ -35,7 +35,10 @@ def get_transcript():
         }
         return jsonify(response)
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        error_message = str(e)
+        if "Subtitles are disabled" in error_message:
+            return jsonify({"error": "Subtitles are not available for this video. Please try another video with subtitles enabled."}), 400
+        return jsonify({"error": "An unexpected error occurred: " + error_message}), 500
 
 if __name__ == "__main__":
-    app.run()
+    app.run(host="0.0.0.0", port=5000)
