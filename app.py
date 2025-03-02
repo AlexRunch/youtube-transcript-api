@@ -1,11 +1,24 @@
 from flask import Flask, request, jsonify
-from youtube_transcript_api import YouTubeTranscriptApi
+import yt_dlp
 import logging
+from datetime import datetime
+import pytz
 
 app = Flask(__name__)
 
-# Настройка логирования
-logging.basicConfig(level=logging.INFO)
+# Настройка логирования с локальным временем (MSK)
+class MSKFormatter(logging.Formatter):
+    def formatTime(self, record, datefmt=None):
+        msk_tz = pytz.timezone('Europe/Moscow')
+        dt = datetime.fromtimestamp(record.created, tz=pytz.UTC)
+        dt_msk = dt.astimezone(msk_tz)
+        return dt_msk.strftime('%Y-%m-%d %H:%M:%S')
+
+formatter = MSKFormatter('%(asctime)s [%(levelname)s] %(message)s')
+handler = logging.StreamHandler()
+handler.setFormatter(formatter)
+logging.getLogger().addHandler(handler)
+logging.getLogger().setLevel(logging.INFO)
 
 def format_time(seconds):
     minutes = int(seconds // 60)
@@ -24,17 +37,36 @@ def get_transcript():
         return jsonify({"error": "video_id is required"}), 400
 
     try:
-        transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['en', 'en-US', 'en-GB'])
-        logging.info(f"Transcript retrieved: {transcript[:2]}")  # Логируем первые два элемента для отладки
+        ydl_opts = {
+            'skip_download': True,
+            'writeautomaticsub': True,
+            'subtitleslangs': ['en'],
+            'subtitlesformat': 'json3',
+            'quiet': False,
+        }
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            video_url = f"https://www.youtube.com/watch?v={video_id}"
+            info = ydl.extract_info(video_url, download=False)
+            logging.info(f"Extracted info: {info}")
+            subtitles = info.get('automatic_captions', {}).get('en', [])
+
+        if not subtitles:
+            logging.warning("No subtitles found for the video")
+            return jsonify({"error": "Subtitles are not available for this video."}), 400
+
         window_start = target_time - (window / 2)
         window_end = target_time + (window / 2)
         captured_text = ""
 
-        for entry in transcript:
-            start = entry['start']
-            end = start + entry['duration']
-            if end >= window_start and start <= window_end:
-                captured_text += entry['text'] + " "
+        for subtitle in subtitles[0].get('events', []):
+            if subtitle.get('segs'):
+                start = subtitle['tStartMs'] / 1000
+                duration = subtitle.get('dDurationMs', 0) / 1000
+                end = start + duration
+                if end >= window_start and start <= window_end:
+                    text = "".join(seg['utf8'] for seg in subtitle['segs'])
+                    captured_text += text + " "
 
         response = {
             "time_segment": f"{format_time(window_start)} to {format_time(window_end)}",
@@ -42,11 +74,10 @@ def get_transcript():
         }
         logging.info(f"Returning response: {response}")
         return jsonify(response)
+
     except Exception as e:
         error_message = str(e)
         logging.error(f"Error occurred: {error_message}")
-        if "Subtitles are disabled" in error_message:
-            return jsonify({"error": "Subtitles are not available for this video. Please try another video with subtitles enabled."}), 400
         return jsonify({"error": "An unexpected error occurred: " + error_message}), 500
 
 if __name__ == "__main__":
