@@ -3,6 +3,7 @@ import yt_dlp
 import logging
 from datetime import datetime
 import pytz
+import os
 
 app = Flask(__name__)
 
@@ -19,6 +20,11 @@ handler = logging.StreamHandler()
 handler.setFormatter(formatter)
 logging.getLogger().addHandler(handler)
 logging.getLogger().setLevel(logging.INFO)
+
+@app.route('/ping')
+def ping():
+    logging.info("Ping route accessed")
+    return "Pong!"
 
 def format_time(seconds):
     minutes = int(seconds // 60)
@@ -37,12 +43,19 @@ def get_transcript():
         return jsonify({"error": "video_id is required"}), 400
 
     try:
+        # Используем cookies из переменной окружения
+        cookies = os.getenv('COOKIES', '')
+        if cookies:
+            with open('cookies.txt', 'w') as f:
+                f.write(cookies)
+
         ydl_opts = {
             'skip_download': True,
             'writeautomaticsub': True,
             'subtitleslangs': ['en'],
             'subtitlesformat': 'json3',
             'quiet': False,
+            'cookiefile': 'cookies.txt' if cookies else None,
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
